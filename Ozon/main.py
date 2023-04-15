@@ -1,4 +1,5 @@
-from time import time
+from time import time, sleep
+from pprint import pprint
 
 from bs4 import BeautifulSoup
 from undetected_chromedriver import Chrome, ChromeOptions
@@ -26,30 +27,60 @@ class Ozon:
     product_goods_name: (str, str) = (By.CLASS_NAME, 'goods-name')
 
 
-driver_executable_path = ChromeDriverManager().install()
-options = ChromeOptions()
-# options.page_load_strategy = 'eager'  # ждем лишь загрузки DOM страницы
-options.add_argument('--start-maximized')
-driver = Chrome(driver_executable_path=driver_executable_path, options=options)
+def scroll_down(driver):
+    last_height = driver.execute_script('return document.body.scrollHeight')
+    new_height = last_height + 1
+    while last_height != new_height:
+        driver.execute_script(f'window.scrollTo({{top: {last_height}, left: 0, behavior: "smooth"}});')
+        sleep(0.5)
+        last_height, new_height = new_height, driver.execute_script('return document.body.scrollHeight')
 
-start = time()
-driver.get(Ozon.domain_url)
 
-elem = driver.find_element(By.TAG_NAME, "input")  # ищем первый input
+def parse_soup_html(card_elems):
+    """ Парсинг карточек товаров """
+    # res = []
+    # for card in card_elems:
+    #     prices = all_prices_parsing(card.find(*WildBerries.product_prices).text)
+    #     res.append({
+    #         "url": card.get('href'),
+    #         "img": card.find(*WildBerries.product_img).find('img').get('src'),
+    #         "current_price": min(prices),
+    #         "old_price": max(prices),
+    #         "brand_name": card.find(*WildBerries.product_brand_name).text,
+    #         "goods_name": card.find(*WildBerries.product_goods_name).text
+    #     })
+    # return res
 
-elem.clear()
-elem.send_keys(input_name + Keys.ENTER)
 
-WebDriverWait(driver, 10).until(ec.presence_of_element_located(Ozon.content_selen))
+def main():
+    driver_executable_path = ChromeDriverManager().install()
+    options = ChromeOptions()
+    # options.page_load_strategy = 'eager'  # ждем лишь загрузки DOM страницы
+    options.add_argument('--start-maximized')
+    driver = Chrome(driver_executable_path=driver_executable_path, options=options)
 
-html_soup = BeautifulSoup(driver.page_source, features="lxml")
-card_elems = html_soup.find(*Ozon.content_bs).find_next("div")
+    start = time()
+    driver.get(Ozon.domain_url)
 
-# Для отладки
-with open('html_test.html', 'w', encoding='utf-8') as file:
-    file.write(BeautifulSoup(driver.page_source, 'lxml').prettify())
+    elem = driver.find_element(By.TAG_NAME, "input")  # ищем первый input
 
-driver.close()
-print(time() - start)
+    elem.clear()
+    elem.send_keys(input_name + Keys.ENTER)
 
-# html_soup.find(*Ozon.content_bs).find_next("div").find_all("div", recursive=False)[4].find_all("div", recursive=False)
+    WebDriverWait(driver, 10).until(ec.presence_of_element_located(Ozon.content_selen))
+
+    scroll_down(driver)
+
+    html_soup = BeautifulSoup(driver.page_source, features="lxml")
+    card_elems = html_soup.find(*Ozon.content_bs).find_next("div").find_all("div", recursive=False)
+
+    res = parse_soup_html(card_elems)
+
+    # # Для отладки
+    # with open('html_test.html', 'w', encoding='utf-8') as file:
+    #     file.write(BeautifulSoup(driver.page_source, 'lxml').prettify())
+
+    driver.close()
+    pprint(res)
+    print(len(res))
+    print(time() - start)
