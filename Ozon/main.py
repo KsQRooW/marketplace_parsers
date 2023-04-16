@@ -1,3 +1,4 @@
+import re
 from time import time, sleep
 from pprint import pprint
 
@@ -10,21 +11,20 @@ from selenium.webdriver.support.wait import WebDriverWait
 from webdriver_manager.chrome import ChromeDriverManager
 
 
-input_name = "RTX 3080"
+input_name = "чашка"
+input_name2 = "RTX 3080"
 
 
 class Ozon:
     domain_url: str = "https://www.ozon.ru"
-    search_input: (str, str) = (By.ID, 'searchInput')
+    search_input: (str, str) = (By.TAG_NAME, "input")
     content_selen: (str, str) = (By.CLASS_NAME, "widget-search-result-container")
     content_bs: (str, str) = ("div", "widget-search-result-container")
     card: (str, str) = (By.CLASS_NAME, "product-card__main")
     tags: (str, str) = (By.CLASS_NAME, "search-tags__header")
     product_img: (str, str) = (By.CLASS_NAME, 'product-card__img')
-    img_tag: (str, str) = (By.TAG_NAME, 'img')
-    product_prices: (str, str) = (By.CLASS_NAME, "product-card__price")
-    product_brand_name: (str, str) = (By.CLASS_NAME, 'brand-name')
-    product_goods_name: (str, str) = (By.CLASS_NAME, 'goods-name')
+
+
 
 
 def scroll_down(driver):
@@ -36,20 +36,53 @@ def scroll_down(driver):
         last_height, new_height = new_height, driver.execute_script('return document.body.scrollHeight')
 
 
-def parse_soup_html(card_elems):
-    """ Парсинг карточек товаров """
-    # res = []
-    # for card in card_elems:
-    #     prices = all_prices_parsing(card.find(*WildBerries.product_prices).text)
-    #     res.append({
-    #         "url": card.get('href'),
-    #         "img": card.find(*WildBerries.product_img).find('img').get('src'),
-    #         "current_price": min(prices),
-    #         "old_price": max(prices),
-    #         "brand_name": card.find(*WildBerries.product_brand_name).text,
-    #         "goods_name": card.find(*WildBerries.product_goods_name).text
-    #     })
-    # return res
+def all_prices_parsing(text: str) -> tuple:
+    # Текущая и старая цена товара
+    no_spaces = re.sub(r'[\s.,-]', '', text)
+    split_symbol = re.search(r'\D+', no_spaces)[0]
+
+    # Решаем следующую ситуацию: ['124728', '191890', ''] -> ['124728', '191890']
+    return tuple(int(price) for price in no_spaces.split(split_symbol) if price)
+
+
+def parse_soup_html_v1(card_elems):
+    """ Парсинг карточек товаров, когда они располагаются горизонтальными плашками """
+    res = []
+    for card in card_elems:
+        card_divs = card.find_all('div', recursive=False)
+        prices_tag = card_divs[2].find_next('span').text
+        if not re.search(r'\d', prices_tag):
+            prices_tag = card_divs[2].find_next('div').text
+        prices = all_prices_parsing(prices_tag)
+        res.append({
+            "url": card.find('a').get('href'),
+            "img": card.find('img').get('src'),
+            "current_price": min(prices),
+            "old_price": max(prices),
+            "brand_name": None,  # TODO: подумать, что сюда поставить
+            "goods_name": card_divs[1].find_next('span').text
+        })
+    return res
+
+
+def parse_soup_html_v2(card_elems):
+    """ Парсинг карточек товаров, когда они располагаются сеткой """
+    res = []
+    for card in card_elems:
+        card_divs = card.find_all('div', recursive=False)
+        prices_tag = card_divs[0].find_all('div', recursive=False)[0].text
+        # if not re.search(r'\d', prices_tag):
+        #     prices_tag = card_divs[2].find_next('div').text
+        prices = all_prices_parsing(prices_tag)
+        res.append({
+            "url": card.find('a').get('href'),
+            "img": card.find('img').get('src'),
+            "current_price": min(prices),
+            "old_price": max(prices),
+            "brand_name": None,  # TODO: подумать, что сюда поставить
+            "goods_name": card_divs[0].find_next('a').text
+        })
+    return res
 
 
 def main():
@@ -62,7 +95,7 @@ def main():
     start = time()
     driver.get(Ozon.domain_url)
 
-    elem = driver.find_element(By.TAG_NAME, "input")  # ищем первый input
+    elem = driver.find_element(*Ozon.search_input)  # ищем первый input
 
     elem.clear()
     elem.send_keys(input_name + Keys.ENTER)
@@ -74,13 +107,20 @@ def main():
     html_soup = BeautifulSoup(driver.page_source, features="lxml")
     card_elems = html_soup.find(*Ozon.content_bs).find_next("div").find_all("div", recursive=False)
 
-    res = parse_soup_html(card_elems)
+    if len(card_elems[0].find_all('div', recursive=False)) == 4:
+        res = parse_soup_html_v1(card_elems)
+    else:
+        res = parse_soup_html_v2(card_elems)
 
-    # # Для отладки
-    # with open('html_test.html', 'w', encoding='utf-8') as file:
-    #     file.write(BeautifulSoup(driver.page_source, 'lxml').prettify())
+    # Для отладки
+    with open('html_test.html', 'w', encoding='utf-8') as file:
+        file.write(BeautifulSoup(driver.page_source, 'lxml').prettify())
 
     driver.close()
     pprint(res)
     print(len(res))
     print(time() - start)
+
+
+if __name__ == '__main__':
+    main()
