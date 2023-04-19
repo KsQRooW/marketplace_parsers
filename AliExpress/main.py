@@ -28,6 +28,7 @@ class AliExpress:
 
 
 def scroll_down(driver):
+    """Прокручивает страницу вниз для подгрузки новых товаров"""
     last_height = driver.execute_script('return document.body.scrollHeight')
     new_height = last_height + 1
     while last_height != new_height:
