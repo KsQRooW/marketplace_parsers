@@ -85,7 +85,7 @@ def parse_item_name(html_part: Tag):
 
 def parse_current_price(html_part: Tag):
     """Текущая цена товара"""
-    current_price_raw = html_part.find(AliExpress.current_price)
+    current_price_raw = html_part.find(**AliExpress.current_price)
     current_price_raw = current_price_raw.text if current_price_raw else None
     current_price = current_price_raw  # TODO обработать цену
     return current_price
