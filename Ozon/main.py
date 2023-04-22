@@ -147,7 +147,7 @@ def main():
     driver.close()
     pprint(res)
     print(len(res))
-    print(time() - start)
+    print(time() - start)  # текущий результат: ~5-6 секунд
 
 
 if __name__ == '__main__':
