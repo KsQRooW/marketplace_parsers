@@ -24,6 +24,7 @@ class WildBerries:
     product_prices: (str, str) = ("div", "product-card__price")
     product_brand_name: (str, str) = ("span", 'brand-name')
     product_goods_name: (str, str) = ("span", 'goods-name')
+    comments_info: (str, str) = ("span", "product-card__rating")
 
 
 def scroll_down(driver):
@@ -48,13 +49,16 @@ def parse_soup_html(card_elems):
     res = []
     for card in card_elems:
         prices = all_prices_parsing(card.find(*WildBerries.product_prices).text)
+        comments_info = card.find(*WildBerries.comments_info)
         res.append({
             "url": card.get('href'),
             "img": card.find(*WildBerries.product_img).find('img').get('src'),
             "current_price": min(prices),
             "old_price": max(prices),
             "brand_name": card.find(*WildBerries.product_brand_name).text,
-            "goods_name": card.find(*WildBerries.product_goods_name).text
+            "goods_name": card.find(*WildBerries.product_goods_name).text,
+            "reviews": float(comments_info.get('class')[-1][-1]),
+            "comments": int(comments_info.find_next('span').text)
         })
     return res
 
@@ -79,9 +83,9 @@ def main():
     html_soup = BeautifulSoup(driver.page_source, features="lxml")
     card_elems = html_soup.find_all(*WildBerries.card_bs)
 
-    # # Для отладки
-    # with open('html_test.html', 'w', encoding='utf-8') as file:
-    #     file.write(BeautifulSoup(driver.page_source, 'lxml').prettify())
+    # Для отладки
+    with open('html_test.html', 'w', encoding='utf-8') as file:
+        file.write(BeautifulSoup(driver.page_source, 'lxml').prettify())
 
     res = parse_soup_html(card_elems)
 
