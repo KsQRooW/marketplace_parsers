@@ -2,7 +2,7 @@ import re
 from time import time, sleep
 from pprint import pprint
 
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, Tag
 from undetected_chromedriver import Chrome, ChromeOptions
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
@@ -11,8 +11,8 @@ from selenium.webdriver.support.wait import WebDriverWait
 from webdriver_manager.chrome import ChromeDriverManager
 
 
-input_name = "чашка"
-input_name2 = "RTX 3080"
+input_name = "RTX 3080"
+input_name2 = "чашка"
 
 
 class Ozon:
@@ -23,8 +23,6 @@ class Ozon:
     card: (str, str) = (By.CLASS_NAME, "product-card__main")
     tags: (str, str) = (By.CLASS_NAME, "search-tags__header")
     product_img: (str, str) = (By.CLASS_NAME, 'product-card__img')
-
-
 
 
 def scroll_down(driver):
@@ -45,22 +43,47 @@ def all_prices_parsing(text: str) -> tuple:
     return tuple(int(price) for price in no_spaces.split(split_symbol) if price)
 
 
+def comments_reviews_parsing(spans: list[Tag]):
+    reviews = comments = None
+    for span in spans:
+        val = span.text
+        clear_val = re.sub(r'\s|[^a-zA-Z0-9_.,]', '', val)
+        print(val, clear_val)
+        if clear_val and not re.findall(r'[^0-9.,]', clear_val):
+            if re.search(r'[.,]', clear_val):
+                reviews = float(clear_val)
+            else:
+                comments = int(clear_val)
+    return reviews, comments
+
+
 def parse_soup_html_v1(card_elems):
     """ Парсинг карточек товаров, когда они располагаются горизонтальными плашками """
     res = []
     for card in card_elems:
         card_divs = card.find_all('div', recursive=False)
+
+        comments_info = card_divs[1].find('div').find_all('div', recursive=False)
+        if comments_info:
+            comments_info = comments_info[-1].find_all('span', recursive=False)
+        else:
+            comments_info = []
+        reviews, comments = comments_reviews_parsing(comments_info)
+
         prices_tag = card_divs[2].find_next('span').text
-        if not re.search(r'\d', prices_tag):
+        if len(re.findall('[^0-9\s]', prices_tag)) > len(re.findall('[0-9]', prices_tag)):
             prices_tag = card_divs[2].find_next('div').text
         prices = all_prices_parsing(prices_tag)
+
         res.append({
             "url": card.find('a').get('href'),
             "img": card.find('img').get('src'),
             "current_price": min(prices),
             "old_price": max(prices),
             "brand_name": None,  # TODO: подумать, что сюда поставить
-            "goods_name": card_divs[1].find_next('span').text
+            "goods_name": card_divs[1].find_next('span').text,
+            "reviews": reviews,
+            "comments": comments
         })
     return res
 
@@ -70,17 +93,22 @@ def parse_soup_html_v2(card_elems):
     res = []
     for card in card_elems:
         card_divs = card.find_all('div', recursive=False)
+
+        comments_info = card_divs[0].find_all('div', recursive=False)[-2].find_all('span', recursive=False)
+        reviews, comments = comments_reviews_parsing(comments_info)
+
         prices_tag = card_divs[0].find_all('div', recursive=False)[0].text
-        # if not re.search(r'\d', prices_tag):
-        #     prices_tag = card_divs[2].find_next('div').text
         prices = all_prices_parsing(prices_tag)
+
         res.append({
             "url": card.find('a').get('href'),
             "img": card.find('img').get('src'),
             "current_price": min(prices),
             "old_price": max(prices),
             "brand_name": None,  # TODO: подумать, что сюда поставить
-            "goods_name": card_divs[0].find_next('a').text
+            "goods_name": card_divs[0].find_next('a').text,
+            "reviews": reviews,
+            "comments": comments
         })
     return res
 
