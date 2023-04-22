@@ -3,7 +3,9 @@ import re
 from time import sleep, time
 
 from bs4 import BeautifulSoup, Tag
-from selenium import webdriver
+from undetected_chromedriver import Chrome, ChromeOptions
+from selenium.common.exceptions import TimeoutException, NoSuchElementException
+from selenium.webdriver.common.timeouts import Timeouts
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.wait import WebDriverWait
@@ -25,6 +27,7 @@ class AliExpress:
     product_goods_name: dict = {"class_": re.compile('product-snippet_ProductSnippet__name__')}
     current_price: dict = {"class_": re.compile('snow-price_SnowPrice__mainM__')}
     old_price: dict = {"class_": re.compile('snow-price_SnowPrice__secondPrice__')}
+    reviews: dict = {"class_": re.compile('snippet_ProductSnippet__score__')}
 
 
 def scroll_down(driver):
@@ -33,7 +36,7 @@ def scroll_down(driver):
     new_height = last_height + 1
     while last_height != new_height:
         driver.execute_script(f'window.scrollTo({{top: {last_height}, left: 0, behavior: "smooth"}});')
-        sleep(0.5)
+        sleep(1)
         last_height, new_height = new_height, driver.execute_script('return document.body.scrollHeight')
 
 
@@ -96,6 +99,13 @@ def parse_old_price(html_part: Tag):
     return old_price
 
 
+def parse_reviews(html_part: Tag):
+    val = html_part.find(**AliExpress.reviews)
+    if val:
+        val = float(val.text.replace(',', '.'))
+    return val
+
+
 def parse_soup_html(card_elems):
     res = []
     for card in card_elems:
@@ -106,30 +116,44 @@ def parse_soup_html(card_elems):
             "current_price": parse_current_price(card),
             "old_price": parse_old_price(card),
             "brand_name": parse_brand_name(card),
-            "goods_name": parse_item_name(card)
+            "goods_name": parse_item_name(card),
+            "reviews": parse_reviews(card),
+            "comments": None  # TODO: продумать как их собрать
         })
     return res
 
 
 def main():
-    options = webdriver.ChromeOptions()
+    options = ChromeOptions()
     # options.add_argument('--headless')
-    driver = webdriver.Chrome(options=options)
+    options.add_argument('--start-maximized')
+
+    # options.page_load_strategy = 'eager'
+    driver = Chrome(options=options)
+    driver.timeouts = Timeouts(implicit_wait=5, page_load=5, script=60)
 
     start = time()
-    driver.get(AliExpress.domain_url)
+    try:
+        driver.get(AliExpress.domain_url)
+    except TimeoutException:
+        WebDriverWait(driver, 10).until(ec.presence_of_element_located(AliExpress.search_input))
 
-    WebDriverWait(driver, 10).until(ec.presence_of_element_located(AliExpress.content))
     elem = driver.find_element(*AliExpress.search_input)
-
     elem.clear()
-    elem.send_keys(input_name + Keys.ENTER)
-    WebDriverWait(driver, 10).until(ec.presence_of_element_located(AliExpress.card_selen))
+
+    try:
+        elem.send_keys(input_name + Keys.ENTER)
+    except TimeoutException:
+        WebDriverWait(driver, 10).until(ec.presence_of_element_located(AliExpress.card_selen))
 
     scroll_down(driver)
 
     html_soup = BeautifulSoup(driver.page_source, features="lxml")
     card_elems = html_soup.find_all(**AliExpress.card_bs)
+
+    # Для отладки
+    with open('html_test.html', 'w', encoding='utf-8') as file:
+        file.write(BeautifulSoup(driver.page_source, 'lxml').prettify())
 
     res = parse_soup_html(card_elems)
 
