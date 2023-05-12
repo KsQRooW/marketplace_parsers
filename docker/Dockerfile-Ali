@@ -1,0 +1,29 @@
+FROM ultrafunk/undetected-chromedriver
+#FROM python:3.10
+COPY ../requirements.txt /opt/api/requirements.txt
+WORKDIR /opt/api
+#RUN apt-get update
+#RUN apt-get install -y gconf-service libasound2 libatk1.0-0 libcairo2 libcups2 libfontconfig1 libgdk-pixbuf2.0-0 libgtk-3-0 libnspr4 libpango-1.0-0 libxss1 fonts-liberation libappindicator1 libnss3 lsb-release xdg-utils
+#RUN wget https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb
+#RUN dpkg -i google-chrome-stable_current_amd64.deb; apt-get -fy install
+
+#RUN apt-get install -y wget
+#RUN wget -q -O - https://dl-ssl.google.com/linux/linux_signing_key.pub | apt-key add - && echo "deb http://dl.google.com/linux/chrome/deb/ stable main" >> /etc/apt/sources.list.d/google.list
+#RUN apt-get update && apt-get -y install google-chrome-stable
+
+#RUN DEBIAN_FRONTEND=noninteractive
+#RUN wget -q -O - https://dl-ssl.google.com/linux/linux_signing_key.pub > /usr/share/keyrings/chrome.pub
+#RUN echo 'deb [arch=amd64 signed-by=/usr/share/keyrings/chrome.pub] http://dl.google.com/linux/chrome/deb/ stable main' > /etc/apt/sources.list.d/google-chrome.list
+#RUN apt update -y
+#RUN apt install -y google-chrome-stable
+#
+#RUN apt install xvfb -y
+#RUN export DISPLAY=:1
+#RUN Xvfb $DISPLAY -screen $DISPLAY 1280x1024x16
+
+
+RUN pip install -r requirements.txt
+#RUN pip install pydantic[email]
+RUN pip install -U "celery[redis]"
+COPY .. /opt/api
+CMD ["celery", "--app=tasks.base", "worker", "--concurrency=2", "-Q", "ali", "--loglevel=DEBUG"]

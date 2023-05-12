@@ -1,3 +1,5 @@
+import random  # todo: выпилить
+
 import re
 from time import time, sleep
 from pprint import pprint
@@ -9,10 +11,6 @@ from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.support import expected_conditions as ec
 from selenium.webdriver.support.wait import WebDriverWait
 from webdriver_manager.chrome import ChromeDriverManager
-
-
-input_name = "RTX 3080"
-input_name2 = "чашка"
 
 
 class Ozon:
@@ -48,7 +46,7 @@ def comments_reviews_parsing(spans: list[Tag]):
     for span in spans:
         val = span.text
         clear_val = re.sub(r'\s|[^a-zA-Z0-9_.,]', '', val)
-        print(val, clear_val)
+        # print(val, clear_val)
         if clear_val and not re.findall(r'[^0-9.,]', clear_val):
             if re.search(r'[.,]', clear_val):
                 reviews = float(clear_val)
@@ -76,14 +74,16 @@ def parse_soup_html_v1(card_elems):
         prices = all_prices_parsing(prices_tag)
 
         res.append({
-            "url": card.find('a').get('href'),
+            "url": f"{Ozon.domain_url}{card.find('a').get('href')}",
             "img": card.find('img').get('src'),
             "current_price": min(prices),
             "old_price": max(prices),
             "brand_name": None,  # TODO: подумать, что сюда поставить
-            "goods_name": card_divs[1].find_next('span').text,
+            "goods_name": card_divs[1].find_next('a').text,
             "reviews": reviews,
-            "comments": comments
+            "comments": comments,
+            "market": "aliexpress",
+            "raiting": random.random() * 100
         })
     return res
 
@@ -108,25 +108,37 @@ def parse_soup_html_v2(card_elems):
             "brand_name": None,  # TODO: подумать, что сюда поставить
             "goods_name": card_divs[0].find_next('a').text,
             "reviews": reviews,
-            "comments": comments
+            "comments": comments,
+            "market": "aliexpress",
+            "raiting": random.random() * 100
         })
     return res
 
 
-def main():
+def main(input_name: str):
     driver_executable_path = ChromeDriverManager().install()
     options = ChromeOptions()
     # options.page_load_strategy = 'eager'  # ждем лишь загрузки DOM страницы
     options.add_argument('--start-maximized')
-    driver = Chrome(driver_executable_path=driver_executable_path, options=options)
+    options.add_argument("--disable-extensions")
+    options.add_argument("--disable-application-cache")
+    options.add_argument("--disable-gpu")
+    options.add_argument("--remote-debugging-port=9222")
+    options.add_argument("--no-sandbox")
+    options.add_argument("--disable-setuid-sandbox")
+    options.add_argument("--disable-dev-shm-usage")
+    options.add_argument("--disable-blink-features=AutomationControlled")
+    # options.add_argument('--headless')
+    driver = Chrome(driver_executable_path=driver_executable_path, options=options, version_main=110)
 
     start = time()
     driver.get(Ozon.domain_url)
-
+    # driver.save_screenshot('screenie1.png')
     elem = driver.find_element(*Ozon.search_input)  # ищем первый input
 
     elem.clear()
     elem.send_keys(input_name + Keys.ENTER)
+    # driver.save_screenshot('screenie2.png')
 
     WebDriverWait(driver, 10).until(ec.presence_of_element_located(Ozon.content_selen))
 
@@ -140,15 +152,15 @@ def main():
     else:
         res = parse_soup_html_v2(card_elems)
 
-    # Для отладки
-    with open('html_test.html', 'w', encoding='utf-8') as file:
-        file.write(BeautifulSoup(driver.page_source, 'lxml').prettify())
+    # # Для отладки
+    # with open('html_test.html', 'w', encoding='utf-8') as file:
+    #     file.write(BeautifulSoup(driver.page_source, 'lxml').prettify())
 
     driver.close()
     pprint(res)
     print(len(res))
     print(time() - start)  # текущий результат: ~5-6 секунд
+    return res
 
 
-if __name__ == '__main__':
-    main()
+main("rtx 3080")

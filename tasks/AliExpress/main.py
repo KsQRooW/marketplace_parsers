@@ -1,18 +1,18 @@
+import random  # todo: выпилить
+
 from pprint import pprint
 import re
 from time import sleep, time
 
 from bs4 import BeautifulSoup, Tag
 from undetected_chromedriver import Chrome, ChromeOptions
-from selenium.common.exceptions import TimeoutException, NoSuchElementException
+from selenium.common.exceptions import TimeoutException
 from selenium.webdriver.common.timeouts import Timeouts
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.wait import WebDriverWait
 from selenium.webdriver.support import expected_conditions as ec
-
-
-input_name = "RTX 3080"
+from webdriver_manager.chrome import ChromeDriverManager
 
 
 class AliExpress:
@@ -118,18 +118,29 @@ def parse_soup_html(card_elems):
             "brand_name": parse_brand_name(card),
             "goods_name": parse_item_name(card),
             "reviews": parse_reviews(card),
-            "comments": None  # TODO: продумать как их собрать
+            "comments": None,  # TODO: продумать как их собрать
+            "market": "aliexpress",
+            "raiting": random.random() * 100
         })
     return res
 
 
-def main():
+def main(input_name):
+    driver_executable_path = ChromeDriverManager().install()
     options = ChromeOptions()
     # options.add_argument('--headless')
     options.add_argument('--start-maximized')
+    options.add_argument("--disable-extensions")
+    options.add_argument("--disable-application-cache")
+    options.add_argument("--disable-gpu")
+    options.add_argument("--remote-debugging-port=9222")
+    options.add_argument("--no-sandbox")
+    options.add_argument("--disable-setuid-sandbox")
+    options.add_argument("--disable-dev-shm-usage")
+    options.add_argument("--disable-blink-features=AutomationControlled")
 
     # options.page_load_strategy = 'eager'
-    driver = Chrome(options=options)
+    driver = Chrome(driver_executable_path=driver_executable_path, options=options, version_main=110)
     driver.timeouts = Timeouts(implicit_wait=5, page_load=5, script=60)
 
     start = time()
@@ -163,5 +174,4 @@ def main():
     print(time() - start)  # текущий результат: ~12 секунд
 
 
-if __name__ == '__main__':
-    main()
+main("rtx 3080")

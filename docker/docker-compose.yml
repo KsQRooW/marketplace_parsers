@@ -1,0 +1,60 @@
+version: "3.8"
+
+services:
+
+  redis:
+    image: redis:alpine3.17
+    hostname: redis
+    ports:
+      - "6379:6379"
+    networks:
+      - back
+
+  api:
+    build:
+      dockerfile: ./docker/Dockerfile
+      context: ..
+    ports:
+      - "8000:8888"
+    networks:
+      - back
+
+# Это работает потому что, сервис Celery просто разгребает очередь из Redis, поэтому его нужно просто запустить,
+# а наполнение очереди в Redis просто происходит через интерфейс-класс "Celery (тот что from celery import Celery)".
+# Формально, можно сказать, что Celery это интерфейс к Redis, через него просто корректно складываем данные по таску
+# в БД Celery
+  ozon:
+    build:
+      dockerfile: ./docker/Dockerfile-Ozon
+      context: ..
+    ports:
+      - "8001:8001"
+    depends_on:
+      - redis
+    networks:
+      - back
+
+  wb:
+    build:
+      dockerfile: ./docker/Dockerfile-WB
+      context: ..
+    ports:
+      - "8002:8002"
+    depends_on:
+      - redis
+    networks:
+      - back
+
+  ali:
+    build:
+      dockerfile: ./docker/Dockerfile-Ali
+      context: ..
+    ports:
+      - "8003:8003"
+    depends_on:
+      - redis
+    networks:
+      - back
+
+networks:
+  back:
