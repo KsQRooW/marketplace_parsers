@@ -1,26 +1,46 @@
-from celery import group
-from fastapi import FastAPI
-import uvicorn
-from time import time
+from typing import Annotated
 
-from tasks.base import ozon_run, wb_run, ali_run
+from celery import group
+from fastapi import FastAPI, Query
+import uvicorn
+
+from tasks.base import ozon_run, wb_run, ali_run, wb_extended_run, ozon_extended_run, ali_extended_run
 
 
 app = FastAPI()
+MARKETPLACE_JOBS = {
+        "wildberries": {
+            "search": wb_run,
+            "extended": wb_extended_run
+        },
+        "ozon": {
+            "search": ozon_run,
+            "extended": ozon_extended_run
+        },
+        "aliexpress": {
+            "search": ali_run,
+            "extended": ali_extended_run
+        },
+    }
+
 
 
 @app.get("/search")
-def route(input_name: str):
-    start = time()
-    task_ozon = ozon_run.s(input_name)
-    task_wb = wb_run.s(input_name)
-    task_ali = ali_run.s(input_name)
-    res = group(task_ozon, task_wb, task_ali)().get()
-    print(time() - start)
-    return res
+def route(input_name: str, marketplaces: Annotated[list[str], Query()] = ("wildberries", "ozon", "aliexpress")):
+    tasks = [MARKETPLACE_JOBS[marketplace]["search"].s(input_name) for marketplace in marketplaces]
+    tasks_res = group(*tasks)().get()
+    response = []
+    for res in tasks_res:
+        if res is not None:
+            response.extend(res)
+    return response
 
 
-""" Запуск приложения (аналогично uvicorn main:app --reload) """
+@app.get("/extended/{marketplace}/{url}")
+def extended_params(marketplace: str, url: str):
+    return MARKETPLACE_JOBS[marketplace]["extended"].delay(url).get()
+
+
 
 if __name__ == "__main__":
     uvicorn.run("main:app", host='0.0.0.0', log_level="info", port=8888)
