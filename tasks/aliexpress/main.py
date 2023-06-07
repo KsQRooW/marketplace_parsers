@@ -1,18 +1,16 @@
-import random  # todo: выпилить
-
-from pprint import pprint
 import re
-from time import sleep, time
 
 from bs4 import BeautifulSoup, Tag
-from undetected_chromedriver import Chrome, ChromeOptions
+from undetected_chromedriver import Chrome
 from selenium.common.exceptions import TimeoutException
 from selenium.webdriver.common.timeouts import Timeouts
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.wait import WebDriverWait
 from selenium.webdriver.support import expected_conditions as ec
-from webdriver_manager.chrome import ChromeDriverManager
+
+from models.text import Text
+from models.browser import get_driver, scroll_down
 
 
 class AliExpress:
@@ -28,16 +26,6 @@ class AliExpress:
     current_price: dict = {"class_": re.compile('snow-price_SnowPrice__mainM__')}
     old_price: dict = {"class_": re.compile('snow-price_SnowPrice__secondPrice__')}
     reviews: dict = {"class_": re.compile('snippet_ProductSnippet__score__')}
-
-
-def scroll_down(driver):
-    """Прокручивает страницу вниз для подгрузки новых товаров"""
-    last_height = driver.execute_script('return document.body.scrollHeight')
-    new_height = last_height + 1
-    while last_height != new_height:
-        driver.execute_script(f'window.scrollTo({{top: {last_height}, left: 0, behavior: "smooth"}});')
-        sleep(1)
-        last_height, new_height = new_height, driver.execute_script('return document.body.scrollHeight')
 
 
 def clean_url(raw_url: str) -> str:
@@ -56,7 +44,7 @@ def parse_url(html_part: Tag) -> str:
     if item_url.startswith(AliExpress.pure_name):
         return 'https://' + item_url
     # Если ссылки относительные (/item/1005004065604805.html?sku_id=12000027923647408)
-    # return AliExpress.domain_url + '/' + item_url[1:] if item_url[0] == '/' else item_url  # Оставить 1 слэш
+    # return aliexpress.domain_url + '/' + item_url[1:] if item_url[0] == '/' else item_url  # Оставить 1 слэш
     return AliExpress.domain_url + '/' + clean_url(item_url)
 
 
@@ -83,67 +71,64 @@ def parse_item_name(html_part: Tag):
     return item_name
 
 
+def parse_price(text: str):
+    no_spaces = re.sub(r'[\s.-]', '', text)
+    split_symbol = re.search(r'[^,\d]+', no_spaces)[0]
+    clean_price = re.sub(split_symbol, '', no_spaces)
+    clean_price = re.sub(',', '.', clean_price)
+
+    return float(clean_price)
+
+
 def parse_current_price(html_part: Tag):
     """Текущая цена товара"""
     current_price_raw = html_part.find(**AliExpress.current_price)
-    current_price_raw = current_price_raw.text if current_price_raw else None
-    current_price = current_price_raw  # TODO обработать цену
+    current_price = parse_price(current_price_raw.text) if current_price_raw else 0
     return current_price
 
 
 def parse_old_price(html_part: Tag):
     """Старая цена товара"""
     old_price_raw = html_part.find(**AliExpress.old_price)
-    old_price_raw = old_price_raw.text if old_price_raw else None
-    old_price = old_price_raw  # TODO обработать цену
+    old_price = parse_price(old_price_raw.text) if old_price_raw else 0
     return old_price
 
 
 def parse_reviews(html_part: Tag):
     val = html_part.find(**AliExpress.reviews)
-    if val:
-        val = float(val.text.replace(',', '.'))
+    val = float(val.text.replace(',', '.')) if val else 0
     return val
 
 
-def parse_soup_html(card_elems):
+def parse_soup_html(input_name, card_elems):
+    text_matcher = Text()
     res = []
     for card in card_elems:
+        img = parse_img_url(card)
+        current_price = parse_current_price(card)
+        goods_name = parse_item_name(card)
 
         res.append({
             "url": parse_url(card),
-            "img": parse_img_url(card),
-            "current_price": parse_current_price(card),
+            "img": img if img.startswith("https") else f"https://{img}",
+            "current_price": current_price,
+            "reverse_price": (1 / current_price) if current_price != 0 else 0,
             "old_price": parse_old_price(card),
             "brand_name": parse_brand_name(card),
             "goods_name": parse_item_name(card),
             "reviews": parse_reviews(card),
-            "comments": None,  # TODO: продумать как их собрать
+            "comments": 0,  # их нет в поисковой выдаче
             "market": "aliexpress",
-            "raiting": random.random() * 100
+            "text_accuracy": text_matcher.text_accuracy(input_name, goods_name)
         })
     return res
 
 
-def main(input_name):
-    driver_executable_path = ChromeDriverManager().install()
-    options = ChromeOptions()
-    # options.add_argument('--headless')
-    options.add_argument('--start-maximized')
-    options.add_argument("--disable-extensions")
-    options.add_argument("--disable-application-cache")
-    options.add_argument("--disable-gpu")
-    options.add_argument("--remote-debugging-port=9222")
-    options.add_argument("--no-sandbox")
-    options.add_argument("--disable-setuid-sandbox")
-    options.add_argument("--disable-dev-shm-usage")
-    options.add_argument("--disable-blink-features=AutomationControlled")
+def main(input_name: str, driver: Chrome = None):
+    if not driver:
+        driver = get_driver()
+    driver.timeouts = Timeouts(implicit_wait=3, page_load=3, script=60)
 
-    # options.page_load_strategy = 'eager'
-    driver = Chrome(driver_executable_path=driver_executable_path, options=options, version_main=110)
-    driver.timeouts = Timeouts(implicit_wait=5, page_load=5, script=60)
-
-    start = time()
     try:
         driver.get(AliExpress.domain_url)
     except TimeoutException:
@@ -157,21 +142,12 @@ def main(input_name):
     except TimeoutException:
         WebDriverWait(driver, 10).until(ec.presence_of_element_located(AliExpress.card_selen))
 
-    scroll_down(driver)
+    scroll_down(driver, 6)
 
     html_soup = BeautifulSoup(driver.page_source, features="lxml")
     card_elems = html_soup.find_all(**AliExpress.card_bs)
 
-    # Для отладки
-    with open('html_test.html', 'w', encoding='utf-8') as file:
-        file.write(BeautifulSoup(driver.page_source, 'lxml').prettify())
-
-    res = parse_soup_html(card_elems)
+    res = parse_soup_html(input_name, card_elems)
 
     driver.close()
-    pprint(res)
-    print(len(res))
-    print(time() - start)  # текущий результат: ~12 секунд
-
-
-main("rtx 3080")
+    return res

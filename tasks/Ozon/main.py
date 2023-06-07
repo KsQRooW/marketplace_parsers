@@ -1,16 +1,15 @@
-import random  # todo: выпилить
-
 import re
-from time import time, sleep
-from pprint import pprint
 
 from bs4 import BeautifulSoup, Tag
-from undetected_chromedriver import Chrome, ChromeOptions
+from selenium.common import TimeoutException
+from undetected_chromedriver import Chrome
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.support import expected_conditions as ec
 from selenium.webdriver.support.wait import WebDriverWait
-from webdriver_manager.chrome import ChromeDriverManager
+
+from models.text import Text
+from models.browser import get_driver, scroll_down
 
 
 class Ozon:
@@ -23,15 +22,6 @@ class Ozon:
     product_img: (str, str) = (By.CLASS_NAME, 'product-card__img')
 
 
-def scroll_down(driver):
-    last_height = driver.execute_script('return document.body.scrollHeight')
-    new_height = last_height + 1
-    while last_height != new_height:
-        driver.execute_script(f'window.scrollTo({{top: {last_height}, left: 0, behavior: "smooth"}});')
-        sleep(0.5)
-        last_height, new_height = new_height, driver.execute_script('return document.body.scrollHeight')
-
-
 def all_prices_parsing(text: str) -> tuple:
     # Текущая и старая цена товара
     no_spaces = re.sub(r'[\s.,-]', '', text)
@@ -42,11 +32,10 @@ def all_prices_parsing(text: str) -> tuple:
 
 
 def comments_reviews_parsing(spans: list[Tag]):
-    reviews = comments = None
+    reviews = comments = 0
     for span in spans:
         val = span.text
         clear_val = re.sub(r'\s|[^a-zA-Z0-9_.,]', '', val)
-        # print(val, clear_val)
         if clear_val and not re.findall(r'[^0-9.,]', clear_val):
             if re.search(r'[.,]', clear_val):
                 reviews = float(clear_val)
@@ -55,41 +44,46 @@ def comments_reviews_parsing(spans: list[Tag]):
     return reviews, comments
 
 
-def parse_soup_html_v1(card_elems):
+def parse_soup_html_v1(input_name, card_elems):
     """ Парсинг карточек товаров, когда они располагаются горизонтальными плашками """
+    text_matcher = Text()
     res = []
     for card in card_elems:
         card_divs = card.find_all('div', recursive=False)
 
         comments_info = card_divs[1].find('div').find_all('div', recursive=False)
         if comments_info:
-            comments_info = comments_info[-1].find_all('span', recursive=False)
+            comments_info = comments_info[-1].find('div').find_all('span', recursive=False)
         else:
             comments_info = []
         reviews, comments = comments_reviews_parsing(comments_info)
 
         prices_tag = card_divs[2].find_next('span').text
-        if len(re.findall('[^0-9\s]', prices_tag)) > len(re.findall('[0-9]', prices_tag)):
+        if len(re.findall(r'[^0-9\s]', prices_tag)) > len(re.findall(r'[0-9]', prices_tag)):
             prices_tag = card_divs[2].find_next('div').text
         prices = all_prices_parsing(prices_tag)
+        current_price = min(prices)
+        goods_name = card_divs[1].find_next('a').text
 
         res.append({
             "url": f"{Ozon.domain_url}{card.find('a').get('href')}",
             "img": card.find('img').get('src'),
-            "current_price": min(prices),
+            "current_price": current_price,
+            "reverse_price": (1 / current_price) if current_price != 0 else 0,
             "old_price": max(prices),
-            "brand_name": None,  # TODO: подумать, что сюда поставить
-            "goods_name": card_divs[1].find_next('a').text,
+            "brand_name": None,
+            "goods_name": goods_name,
             "reviews": reviews,
             "comments": comments,
-            "market": "aliexpress",
-            "raiting": random.random() * 100
+            "market": "ozon",
+            "text_accuracy": text_matcher.text_accuracy(input_name, goods_name)
         })
     return res
 
 
-def parse_soup_html_v2(card_elems):
+def parse_soup_html_v2(input_name, card_elems):
     """ Парсинг карточек товаров, когда они располагаются сеткой """
+    text_matcher = Text()
     res = []
     for card in card_elems:
         card_divs = card.find_all('div', recursive=False)
@@ -99,68 +93,56 @@ def parse_soup_html_v2(card_elems):
 
         prices_tag = card_divs[0].find_all('div', recursive=False)[0].text
         prices = all_prices_parsing(prices_tag)
+        current_price = min(prices)
+
+        goods_name = card_divs[0].find_next('a').text
 
         res.append({
             "url": card.find('a').get('href'),
             "img": card.find('img').get('src'),
-            "current_price": min(prices),
+            "current_price": current_price,
+            "reverse_price": (1 / current_price) if current_price != 0 else 0,
             "old_price": max(prices),
-            "brand_name": None,  # TODO: подумать, что сюда поставить
-            "goods_name": card_divs[0].find_next('a').text,
+            "brand_name": None,
+            "goods_name": goods_name,
             "reviews": reviews,
             "comments": comments,
-            "market": "aliexpress",
-            "raiting": random.random() * 100
+            "market": "ozon",
+            "text_accuracy": text_matcher.text_accuracy(input_name, goods_name)
         })
     return res
 
 
-def main(input_name: str):
-    driver_executable_path = ChromeDriverManager().install()
-    options = ChromeOptions()
-    # options.page_load_strategy = 'eager'  # ждем лишь загрузки DOM страницы
-    options.add_argument('--start-maximized')
-    options.add_argument("--disable-extensions")
-    options.add_argument("--disable-application-cache")
-    options.add_argument("--disable-gpu")
-    options.add_argument("--remote-debugging-port=9222")
-    options.add_argument("--no-sandbox")
-    options.add_argument("--disable-setuid-sandbox")
-    options.add_argument("--disable-dev-shm-usage")
-    options.add_argument("--disable-blink-features=AutomationControlled")
-    # options.add_argument('--headless')
-    driver = Chrome(driver_executable_path=driver_executable_path, options=options, version_main=110)
+def main(input_name: str, driver: Chrome = None):
+    if not driver:
+        driver = get_driver()
 
-    start = time()
     driver.get(Ozon.domain_url)
-    # driver.save_screenshot('screenie1.png')
+
+    WebDriverWait(driver, 10).until(ec.element_to_be_clickable(Ozon.search_input))
     elem = driver.find_element(*Ozon.search_input)  # ищем первый input
 
     elem.clear()
     elem.send_keys(input_name + Keys.ENTER)
-    # driver.save_screenshot('screenie2.png')
 
-    WebDriverWait(driver, 10).until(ec.presence_of_element_located(Ozon.content_selen))
+    try:
+        WebDriverWait(driver, 10).until(ec.presence_of_element_located(Ozon.content_selen))
+    except TimeoutException:
+        driver.refresh()
 
-    scroll_down(driver)
+    scroll_down(driver, 1.5)
 
     html_soup = BeautifulSoup(driver.page_source, features="lxml")
     card_elems = html_soup.find(*Ozon.content_bs).find_next("div").find_all("div", recursive=False)
 
     if len(card_elems[0].find_all('div', recursive=False)) == 4:
-        res = parse_soup_html_v1(card_elems)
+        res = parse_soup_html_v1(input_name, card_elems)
     else:
-        res = parse_soup_html_v2(card_elems)
-
-    # # Для отладки
-    # with open('html_test.html', 'w', encoding='utf-8') as file:
-    #     file.write(BeautifulSoup(driver.page_source, 'lxml').prettify())
+        res = parse_soup_html_v2(input_name, card_elems)
 
     driver.close()
-    pprint(res)
-    print(len(res))
-    print(time() - start)  # текущий результат: ~5-6 секунд
     return res
 
 
-main("rtx 3080")
+# from pprint import pprint
+# pprint(main("чашка"))
