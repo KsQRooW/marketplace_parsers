@@ -1,8 +1,15 @@
 from celery import Celery
+from celery.signals import task_prerun, task_postrun
 
-from .AliExpress.main import main as main_ali
-from .Ozon.main import main as main_ozon
-from .WildBerries.main import main as main_wb
+from .aliexpress.main import main as main_ali
+from .aliexpress.extended import parse_extend as parse_extend_ali
+from .ozon.main import main as main_ozon
+from .ozon.extended import parse_extend as parse_extend_ozon
+from .summarizator.main import summarize
+from .translator.main import translate
+from .wildberries.main import main as main_wb
+from .wildberries.extended import parse_extend as parse_extend_wb
+from models.browser import get_driver
 
 
 app = Celery('base', broker='redis://redis:6379/0', backend='redis://redis:6379/1')
@@ -17,16 +24,64 @@ app.conf.result_backend_transport_options = {
 }
 
 
-@app.task(name="ozon", queue="ozon", autoretry_for=(Exception,), max_retries=5, default_retry_delay=1)
-def ozon_run(input_name: str):
-    return main_ozon(input_name)
+@task_prerun.connect
+def start_browser(task, **kwargs):
+    """ Инициализация браузера """
+    task.driver = get_driver()
 
 
-@app.task(name="wb", queue="wb", autoretry_for=(Exception,), max_retries=5, default_retry_delay=1)
-def wb_run(input_name: str):
-    return main_wb(input_name)
+@task_postrun.connect
+def close_browser(task, **kwargs):
+    """ Закрытие браузера """
+    task.close()
 
 
-@app.task(name="ali", queue="ali", autoretry_for=(Exception,), max_retries=5, default_retry_delay=1)
-def ali_run(input_name: str):
-    return main_ali(input_name)
+# # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
+
+@app.task(bind=True, name="translate", queue="translate",
+          autoretry_for=(Exception,), max_retries=3, default_retry_delay=1)
+def translate_run(self, text, source="ru", target="en"):
+    return translate(self.driver, text, source=source, target=target)
+
+# # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
+
+
+@app.task(name="summarize", queue="summarize", autoretry_for=(Exception,), max_retries=3, default_retry_delay=1)
+def summarize_run(text):
+    return summarize(text)
+
+
+# # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
+
+
+@app.task(bind=True, name="ozon", queue="ozon", autoretry_for=(Exception,), max_retries=3, default_retry_delay=1)
+def ozon_run(self, input_name: str):
+    return main_ozon(input_name, self.driver)
+
+
+@app.task(bind=True, name="wb", queue="wb", autoretry_for=(Exception,), max_retries=3, default_retry_delay=1)
+def wb_run(self, input_name: str):
+    return main_wb(input_name, self.driver)
+
+
+@app.task(bind=True, name="ali", queue="ali", autoretry_for=(Exception,), max_retries=3, default_retry_delay=1)
+def ali_run(self, input_name: str):
+    return main_ali(input_name, self.driver)
+
+
+# # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
+
+
+@app.task(bind=True, name="ozon_extended", queue="ozon", autoretry_for=(Exception,), max_retries=3, default_retry_delay=1)
+def ozon_extended_run(self, url: str):
+    return parse_extend_ozon(self.driver, url)
+
+
+@app.task(bind=True, name="wb_extended", queue="wb", autoretry_for=(Exception,), max_retries=3, default_retry_delay=1)
+def wb_extended_run(self, url: str):
+    return parse_extend_wb(self.driver, url)
+
+
+@app.task(bind=True, name="ali_extended", queue="ali", autoretry_for=(Exception,), max_retries=3, default_retry_delay=1)
+def ali_extended_run(self, url: str):
+    return parse_extend_ali(self.driver, url)
