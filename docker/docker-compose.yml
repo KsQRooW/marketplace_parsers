@@ -27,6 +27,8 @@ services:
     build:
       dockerfile: ./docker/Dockerfile-Ozon
       context: ..
+    volumes:
+      - ozon:/opt/api
     ports:
       - "8001:8001"
     depends_on:
@@ -38,6 +40,8 @@ services:
     build:
       dockerfile: ./docker/Dockerfile-WB
       context: ..
+    volumes:
+      - wb:/opt/api
     ports:
       - "8002:8002"
     depends_on:
@@ -49,12 +53,33 @@ services:
     build:
       dockerfile: ./docker/Dockerfile-Ali
       context: ..
+    volumes:
+      - ali:/opt/api
     ports:
       - "8003:8003"
     depends_on:
       - redis
     networks:
       - back
+
+  translater:
+    build:
+      dockerfile: ./docker/Dockerfile-Translater
+      context: ..
+    volumes:
+      - translater:/opt/api
+    ports:
+      - "8004:8004"
+    depends_on:
+      - redis
+    networks:
+      - back
+
+volumes:
+  ozon:
+  wb:
+  ali:
+  translater:
 
 networks:
   back:
